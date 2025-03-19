@@ -1,0 +1,37 @@
+{
+  "name": "auth-service",
+  "version": "1.0.0",
+  "description": "Authentication service for school management system",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "ts-node src/index.ts",
+    "dev": "nodemon --exec ts-node src/index.ts",
+    "generate": "prisma generate",
+    "migrate": "prisma migrate dev",
+    "build": "npm run generate && tsc"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.4.1",
+    "amqplib": "^0.10.5",
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-validator": "^7.2.1",
+    "jsonwebtoken": "^9.0.2",
+    "rate-limiter-flexible": "^6.1.0",
+    "ts-node": "^10.9.2",
+    "uuid": "^11.0.5"
+  },
+  "devDependencies": {
+    "@types/amqplib": "^0.10.7",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/express": "^5.0.0",
+    "@types/jsonwebtoken": "^9.0.9",
+    "@types/node": "^22.13.5",
+    "@types/uuid": "^10.0.0",
+    "nodemon": "^3.1.9",
+    "prisma": "^6.4.1",
+    "typescript": "^5.7.3"
+  }
+}
