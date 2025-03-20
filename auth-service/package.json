@@ -4,11 +4,9 @@
   "description": "Authentication service for school management system",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "start": "ts-node src/index.ts",
     "dev": "nodemon --exec ts-node src/index.ts",
     "generate": "prisma generate",
-    "migrate": "prisma migrate dev",
     "build": "npm run generate && tsc"
   },
   "dependencies": {
