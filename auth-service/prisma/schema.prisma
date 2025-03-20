@@ -1,0 +1,33 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  adminUser Boolean  @default(false)
+  tenantId  String?
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  
+  @@index([userId, adminUser])
+}
+
+model FailedLoginAttempt {
+  id           String    @id @default(uuid())
+  email        String
+  ip           String
+  tenantId     String?
+  attemptCount Int       @default(1)
+  blockedUntil DateTime?
+  lastAttemptAt DateTime @default(now())
+  
+  @@unique([email, ip])
+}
