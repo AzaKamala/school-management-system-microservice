@@ -1,9 +1,9 @@
 import { getTenantById } from "../queries/tenantQueries";
 import TenantDTO from "../DTOs/tenantDTO";
-import { getTenantUserById, getUserPermissions, getUserRoles } from "../queries/userQueries";
+import { getTenantUserByEmail, getTenantUserById, getUserPermissions, getUserRoles } from "../queries/userQueries";
 import TenantUserDTO from "../DTOs/userDTO";
 import bcrypt from "bcryptjs";
-import { getAdminUserByEmail } from "../queries/adminUserQueries";
+import { getAdminUserByEmail, getAdminUserById } from "../queries/adminUserQueries";
 import { adminPrisma } from "../utils/tenantContext";
 import AdminUserDTO from "../DTOs/adminUserDTO";
 
@@ -172,11 +172,186 @@ export async function handleVerifyAdminUser(
   }
 }
 
+export async function handleVerifyTenantUser(
+  message: any, 
+  replyCallback?: (response: any) => Promise<void>
+): Promise<void> {
+  try {
+    const { email, password, tenantId } = message.data;
+
+    console.log("Verifying tenant user", email, tenantId);
+    
+    if (!email || !password || !tenantId) {
+      if (replyCallback) {
+        await replyCallback({
+          verified: false,
+          error: "Missing required parameters"
+        });
+      }
+      return;
+    }
+    
+    const user = await getTenantUserByEmail(tenantId, email);
+    
+    if (!user || !user.active) {
+      if (replyCallback) {
+        await replyCallback({ verified: false });
+      }
+      return;
+    }
+    
+    if (!user.password) {
+      if (replyCallback) {
+        await replyCallback({ verified: false });
+      }
+      return;
+    }
+    
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    
+    if (!isPasswordValid) {
+      if (replyCallback) {
+        await replyCallback({ verified: false });
+      }
+      return;
+    }
+    
+    const roles = await getUserRoles(tenantId, user.id);
+    const permissions = await getUserPermissions(tenantId, user.id);
+    
+    if (replyCallback) {
+      await replyCallback({
+        verified: true,
+        user: TenantUserDTO.fromObject(user),
+        roles: roles.map(r => r.name),
+        permissions
+      });
+    }
+  } catch (error) {
+    console.error("Error verifying tenant user:", error);
+    if (replyCallback) {
+      await replyCallback({
+        verified: false,
+        error: "Failed to verify tenant user",
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+}
+
+export async function handleGetAdminUser(
+  message: any, 
+  replyCallback?: (response: any) => Promise<void>
+): Promise<void> {
+  try {
+    const { userId } = message.data;
+    
+    if (!userId) {
+      if (replyCallback) {
+        await replyCallback({
+          error: "User ID is required"
+        });
+      }
+      return;
+    }
+    
+    const adminUser = await getAdminUserById(userId);
+    
+    if (!adminUser || !adminUser.active) {
+      if (replyCallback) {
+        await replyCallback({
+          error: "Admin user not found or inactive"
+        });
+      }
+      return;
+    }
+    
+    const userRole = adminUser.assignedRole;
+    const roles = userRole ? [userRole.name] : [];
+    
+    const permissions = userRole
+      ? await adminPrisma.rolePermission
+          .findMany({
+            where: { roleId: userRole.id },
+            include: { permission: true },
+          })
+          .then((rps) => rps.map((rp) => rp.permission.name))
+      : [];
+    
+    if (replyCallback) {
+      await replyCallback({
+        user: AdminUserDTO.fromObject(adminUser),
+        roles,
+        permissions
+      });
+    }
+  } catch (error) {
+    console.error("Error getting admin user:", error);
+    if (replyCallback) {
+      await replyCallback({
+        error: "Failed to get admin user",
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+}
+
+export async function handleGetTenantUser(
+  message: any, 
+  replyCallback?: (response: any) => Promise<void>
+): Promise<void> {
+  try {
+    const { userId, tenantId } = message.data;
+    
+    if (!userId || !tenantId) {
+      if (replyCallback) {
+        await replyCallback({
+          error: "User ID and Tenant ID are required"
+        });
+      }
+      return;
+    }
+    
+    const user = await getTenantUserById(tenantId, userId);
+    
+    if (!user || !user.active) {
+      if (replyCallback) {
+        await replyCallback({
+          error: "User not found or inactive"
+        });
+      }
+      return;
+    }
+    
+    const roles = await getUserRoles(tenantId, userId);
+    const permissions = await getUserPermissions(tenantId, userId);
+    
+    if (replyCallback) {
+      await replyCallback({
+        user: TenantUserDTO.fromObject(user),
+        roles: roles.map(r => r.name),
+        permissions
+      });
+    }
+  } catch (error) {
+    console.error("Error getting tenant user:", error);
+    if (replyCallback) {
+      await replyCallback({
+        error: "Failed to get tenant user",
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+}
+
 export const messageHandlers: Record<string, MessageHandler> = {
   "get-tenant": handleGetTenant,
   "verify-user": handleVerifyUser,
   "get-user-permissions": handleGetUserPermissions,
-  "verify-admin-user": handleVerifyAdminUser
+  "verify-admin-user": handleVerifyAdminUser,
+  "verify-tenant-user": handleVerifyTenantUser,
+  "get-admin-user": handleGetAdminUser,
+  "get-tenant-user": handleGetTenantUser
 };
 
 export async function handleUnknownAction(
