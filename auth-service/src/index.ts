@@ -58,10 +58,6 @@ app.use('/auth', authRouter);
 app.use('/auth/oauth', oauthRouter);
 app.use('/', verifyTokenRouter);
 
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', service: 'auth-service' });
-});
-
 app.listen(port, () => {
   console.log(`Auth service running at http://localhost:${port}`);
 });

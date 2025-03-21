@@ -172,21 +172,11 @@ export async function handleVerifyAdminUser(
   }
 }
 
-export async function handleHealthCheck(
-  message: any, 
-  replyCallback?: (response: any) => Promise<void>
-): Promise<void> {
-  if (replyCallback) {
-    await replyCallback({ status: "ok", service: "tenant-service" });
-  }
-}
-
 export const messageHandlers: Record<string, MessageHandler> = {
   "get-tenant": handleGetTenant,
   "verify-user": handleVerifyUser,
   "get-user-permissions": handleGetUserPermissions,
-  "verify-admin-user": handleVerifyAdminUser,
-  "health-check": handleHealthCheck,
+  "verify-admin-user": handleVerifyAdminUser
 };
 
 export async function handleUnknownAction(
