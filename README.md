@@ -12,8 +12,6 @@ A scalable microservices-based school management system with multi-tenancy, comp
 - [Setup Instructions](#setup-instructions)
 - [API Endpoints](#api-endpoints)
 - [Security Features](#security-features)
-- [Testing](#testing)
-- [Contributing](#contributing)
 
 ## System Overview
 
