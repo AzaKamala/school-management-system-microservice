@@ -1,0 +1,141 @@
+version: '3.8'
+
+services:
+  # API Gateway
+  traefik:
+    image: traefik:v2.8
+    container_name: traefik
+    ports:
+      - "80:80"
+      - "8082:8082"  # Dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./api-gateway/traefik.yml:/etc/traefik/traefik.yml
+      - ./api-gateway/config:/etc/traefik/config
+    networks:
+      - traefik-net
+    restart: unless-stopped
+
+  # Auth Service
+  auth-service:
+    build: ./auth-service
+    container_name: auth-service
+    environment:
+      - PORT=3001
+      - DATABASE_URL=postgresql://postgres:root@auth-db:5432/auth_service
+      - JWT_SECRET=${JWT_SECRET}
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+    networks:
+      - traefik-net
+      - backend-net
+    depends_on:
+      - auth-db
+      - rabbitmq
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+
+  # Auth Service Database
+  auth-db:
+    image: postgres:13
+    container_name: auth-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=root
+      - POSTGRES_DB=auth_service
+    volumes:
+      - auth-db-data:/var/lib/postgresql/data
+    networks:
+      - backend-net
+    restart: unless-stopped
+
+  # Tenant Service
+  tenant-service:
+    build: ./tenant-service
+    container_name: tenant-service
+    environment:
+      - PORT=3002
+      - DATABASE_URL=postgresql://postgres:root@tenant-db:5432/tenant_service
+      - DATABASE_URL_PREFIX=postgresql://postgres:root@tenant-db:5432/
+      - JWT_SECRET=${JWT_SECRET}
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+    networks:
+      - traefik-net
+      - backend-net
+    depends_on:
+      - tenant-db
+      - rabbitmq
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+
+  # Tenant Service Database
+  tenant-db:
+    image: postgres:13
+    container_name: tenant-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=root
+      - POSTGRES_DB=tenant_service
+    volumes:
+      - tenant-db-data:/var/lib/postgresql/data
+    networks:
+      - backend-net
+    restart: unless-stopped
+
+  # Audit Service
+  audit-service:
+    build: ./audit-service
+    container_name: audit-service
+    environment:
+      - PORT=3003
+      - DATABASE_URL=postgresql://postgres:root@audit-db:5432/audit_service
+      - JWT_SECRET=${JWT_SECRET}
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+    networks:
+      - traefik-net
+      - backend-net
+    depends_on:
+      - audit-db
+      - rabbitmq
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+
+  # Audit Service Database
+  audit-db:
+    image: postgres:13
+    container_name: audit-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=root
+      - POSTGRES_DB=audit_service
+    volumes:
+      - audit-db-data:/var/lib/postgresql/data
+    networks:
+      - backend-net
+    restart: unless-stopped
+
+  # Message Broker
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "15672:15672"  # Management UI
+    networks:
+      - backend-net
+    restart: unless-stopped
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+
+networks:
+  traefik-net:
+    driver: bridge
+  backend-net:
+    driver: bridge
+
+volumes:
+  auth-db-data:
+  tenant-db-data:
+  audit-db-data:
+  rabbitmq-data:
