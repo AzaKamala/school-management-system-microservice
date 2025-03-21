@@ -1,0 +1,41 @@
+{
+  "name": "tenant-service",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "ts-node src/index.ts",
+    "dev": "nodemon --exec ts-node src/index.ts",
+    "generate:admin": "prisma generate --schema=./prisma/admin.prisma",
+    "generate:tenant": "prisma generate --schema=./prisma/tenant.prisma",
+    "generate": "npm run generate:admin && npm run generate:tenant",
+    "build": "npm run generate && tsc",
+    "init:db": "ts-node scripts/initDatabase.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@prisma/client": "^6.5.0",
+    "amqplib": "^0.10.5",
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-validator": "^7.2.1",
+    "jsonwebtoken": "^9.0.2",
+    "rate-limiter-flexible": "^6.1.0",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/amqplib": "^0.10.7",
+    "@types/bcryptjs": "^3.0.0",
+    "@types/express": "^5.0.1",
+    "@types/jsonwebtoken": "^9.0.9",
+    "@types/node": "^22.13.10",
+    "@types/uuid": "^10.0.0",
+    "nodemon": "^3.1.9",
+    "prisma": "^6.5.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.2"
+  }
+}
