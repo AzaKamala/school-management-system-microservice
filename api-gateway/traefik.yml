@@ -1,0 +1,28 @@
+# api-gateway/traefik.yml
+global:
+  checkNewVersion: true
+  sendAnonymousUsage: false
+
+log:
+  level: "INFO"
+  format: "common"
+
+api:
+  insecure: true
+  dashboard: true
+
+entryPoints:
+  web:
+    address: ":80"
+    # In production, you'd add HTTPS redirection here
+  dashboard:
+    address: ":8082"
+
+providers:
+  file:
+    directory: "/etc/traefik/config"
+    watch: true
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: "traefik-net"

@@ -1,0 +1,51 @@
+# api-gateway/config/middlewares.yml
+http:
+  middlewares:
+    # Rate limiting middleware
+    rate-limit:
+      rateLimit:
+        average: 100
+        burst: 50
+    
+    # CORS middleware
+    cors-headers:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        accessControlAllowHeaders:
+          - Content-Type
+          - Authorization
+        accessControlAllowOriginList:
+          - "*"  # In production, restrict to your frontend domains
+        accessControlMaxAge: 100
+        addVaryHeader: true
+    
+    # Security headers
+    secure-headers:
+      headers:
+        frameDeny: true
+        sslRedirect: false  # Set to true in production with HTTPS
+        browserXssFilter: true
+        contentTypeNosniff: true
+        forceSTSHeader: false  # Set to true in production with HTTPS
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+        customRequestHeaders:
+          X-Forwarded-Proto: https
+    
+    # JWT authentication (will be configured separately)
+    jwt-auth:
+      forwardAuth:
+        address: "http://auth-service:3001/verify-token"
+        authResponseHeaders:
+          - "X-User-ID"
+          - "X-User-Email"
+          - "X-User-Roles"
+          - "X-User-Permissions"
+          - "X-Tenant-ID"
+          - "X-User-Is-Admin"

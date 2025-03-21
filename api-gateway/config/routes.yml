@@ -1,0 +1,85 @@
+# api-gateway/config/routes.yml
+http:
+  routers:
+    # Auth Service Routes
+    auth-login:
+      rule: "PathPrefix(`/auth/login`) || PathPrefix(`/auth/refresh-token`) || PathPrefix(`/auth/logout`)"
+      service: auth
+      entryPoints:
+        - web
+      middlewares:
+        - rate-limit
+        - cors-headers
+        - secure-headers
+
+    auth-oauth:
+      rule: "PathPrefix(`/auth/oauth`)"
+      service: auth
+      entryPoints:
+        - web
+      middlewares:
+        - rate-limit
+        - cors-headers
+        - secure-headers
+
+    auth-verify:
+      rule: "PathPrefix(`/auth/verify-token`)"
+      service: auth
+      entryPoints:
+        - web
+      middlewares:
+        - jwt-auth
+        - rate-limit
+        - cors-headers
+        - secure-headers
+
+    # Tenant Service Routes
+    tenant:
+      rule: "PathPrefix(`/tenant`)"
+      service: tenant
+      entryPoints:
+        - web
+      middlewares:
+        - jwt-auth
+        - rate-limit
+        - cors-headers
+        - secure-headers
+
+    admin-user:
+      rule: "PathPrefix(`/admin-user`)"
+      service: tenant
+      entryPoints:
+        - web
+      middlewares:
+        - jwt-auth
+        - rate-limit
+        - cors-headers
+        - secure-headers
+
+    # Audit Service Routes
+    audit:
+      rule: "PathPrefix(`/audit`)"
+      service: audit
+      entryPoints:
+        - web
+      middlewares:
+        - jwt-auth
+        - rate-limit
+        - cors-headers
+        - secure-headers
+
+  services:
+    auth:
+      loadBalancer:
+        servers:
+          - url: "http://auth-service:3001"
+    
+    tenant:
+      loadBalancer:
+        servers:
+          - url: "http://tenant-service:3002"
+    
+    audit:
+      loadBalancer:
+        servers:
+          - url: "http://audit-service:3003"
