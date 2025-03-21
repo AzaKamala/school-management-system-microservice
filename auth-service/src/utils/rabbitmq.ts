@@ -4,8 +4,8 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 const RABBITMQ_URL = process.env.RABBITMQ_URL || "amqp://localhost";
-const EXCHANGE_NAME = "audit_logs";
-const QUEUE_NAME = "login_events";
+const EXCHANGE_NAME = "services";
+const LOGIN_EVENTS_QUEUE = "login_events";
 
 let connection: any = null;
 let channel: any = null;
@@ -34,9 +34,14 @@ export async function connectRabbitMQ() {
     connection = await Promise.race([connectionPromise, timeoutPromise]);
     channel = await connection.createChannel();
 
-    await channel.assertExchange(EXCHANGE_NAME, "direct", { durable: true });
-    await channel.assertQueue(QUEUE_NAME, { durable: true });
-    await channel.bindQueue(QUEUE_NAME, EXCHANGE_NAME, "login");
+    await channel.assertQueue(LOGIN_EVENTS_QUEUE, { durable: true });
+    await channel.bindQueue(LOGIN_EVENTS_QUEUE, EXCHANGE_NAME, "login");
+
+    await channel.assertQueue("auth.responses", {
+      durable: false,
+      autoDelete: true,
+    });
+    await channel.bindQueue("auth.responses", EXCHANGE_NAME, "auth.responses");
 
     console.log("Connected to RabbitMQ successfully");
 
@@ -94,6 +99,130 @@ export async function publishLoginEvent(event: LoginEvent) {
     return false;
   }
 }
+
+export async function setupResponseQueue(
+    queueName: string,
+    callback: (message: any) => void
+  ) {
+    try {
+      if (!channel) {
+        await connectRabbitMQ();
+        
+        if (!channel) {
+          console.error(`Cannot set up response queue ${queueName}: RabbitMQ connection not available`);
+          setTimeout(() => setupResponseQueue(queueName, callback), 5000);
+          return;
+        }
+      }
+      
+      await channel.assertQueue(queueName, { durable: false, autoDelete: true });
+      await channel.bindQueue(queueName, EXCHANGE_NAME, queueName);
+      
+      await channel.consume(queueName, (msg: any) => {
+        if (msg) {
+          try {
+            const message = JSON.parse(msg.content.toString());
+            callback(message);
+            channel.ack(msg);
+          } catch (error) {
+            console.error(`Error processing message from ${queueName}:`, error);
+            channel.nack(msg, false, false);
+          }
+        }
+      });
+      
+      console.log(`Response queue ${queueName} set up successfully`);
+    } catch (error) {
+      console.error(`Failed to set up response queue ${queueName}:`, error);
+      setTimeout(() => setupResponseQueue(queueName, callback), 5000);
+    }
+  }
+  
+  export async function consumeMessages(
+    queueName: string,
+    callback: (
+      message: any,
+      replyCallback?: (response: any) => Promise<void>
+    ) => Promise<void>
+  ) {
+    try {
+      if (!channel) {
+        await connectRabbitMQ();
+        
+        if (!channel) {
+          console.error(`Cannot consume messages from ${queueName}: RabbitMQ connection not available`);
+          setTimeout(() => consumeMessages(queueName, callback), 5000);
+          return;
+        }
+      }
+      
+      await channel.assertQueue(queueName, { durable: true });
+      await channel.bindQueue(queueName, EXCHANGE_NAME, queueName);
+      
+      await channel.consume(queueName, async (msg: any) => {
+        if (msg) {
+          try {
+            const message = JSON.parse(msg.content.toString());
+            
+            let replyCallback;
+            if (msg.properties.replyTo && msg.properties.correlationId) {
+              replyCallback = async (response: any) => {
+                await publishMessage(msg.properties.replyTo, {
+                  action: "reply",
+                  data: response,
+                  correlationId: msg.properties.correlationId,
+                  timestamp: new Date()
+                });
+              };
+            }
+            
+            await callback(message, replyCallback);
+            channel.ack(msg);
+          } catch (error) {
+            console.error(`Error processing message from ${queueName}:`, error);
+            channel.nack(msg, false, false);
+          }
+        }
+      });
+      
+      console.log(`Consuming messages from ${queueName}`);
+    } catch (error) {
+      console.error(`Failed to set up consumption from ${queueName}:`, error);
+      setTimeout(() => consumeMessages(queueName, callback), 5000);
+    }
+  }
+  
+  export async function publishMessage(
+    routingKey: string,
+    message: any
+  ) {
+    try {
+      if (!channel) {
+        await connectRabbitMQ();
+        
+        if (!channel) {
+          console.error(`Cannot publish message to ${routingKey}: RabbitMQ connection not available`);
+          return false;
+        }
+      }
+      
+      const result = channel.publish(
+        EXCHANGE_NAME,
+        routingKey,
+        Buffer.from(JSON.stringify(message)),
+        {
+          persistent: true,
+          correlationId: message.correlationId,
+          replyTo: message.replyTo
+        }
+      );
+      
+      return result;
+    } catch (error) {
+      console.error(`Failed to publish message to ${routingKey}:`, error);
+      return false;
+    }
+  }
 
 export async function closeRabbitMQ() {
   try {
