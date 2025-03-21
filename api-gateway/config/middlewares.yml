@@ -1,6 +1,10 @@
 # api-gateway/config/middlewares.yml
 http:
   middlewares:
+    strip-audit-prefix:
+      stripPrefix:
+        prefixes:
+          - "/audit"
     # Rate limiting middleware
     rate-limit:
       rateLimit:

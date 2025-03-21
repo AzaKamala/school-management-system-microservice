@@ -67,6 +67,7 @@ http:
         - rate-limit
         - cors-headers
         - secure-headers
+        - strip-audit-prefix
 
   services:
     auth:
