@@ -119,6 +119,7 @@ export function requireTenantAccess(
 
   if (req.user.isAdmin) {
     next();
+    return;
   }
 
   if (req.user.tenantId !== tenantId) {
