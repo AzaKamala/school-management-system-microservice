@@ -90,7 +90,7 @@ These services communicate through a message broker (RabbitMQ) and are exposed t
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-username/school-management-system.git
+   git clone https://github.com/AzaKamala/school-management-system-microservice.git
    cd school-management-system
    ```
 
