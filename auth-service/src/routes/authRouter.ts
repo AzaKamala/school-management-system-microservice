@@ -1,11 +1,11 @@
 import { Router, Request, Response } from "express";
-import bcrypt from "bcryptjs";
 import { body } from "express-validator";
 import {
   generateAccessToken,
   generateRefreshToken,
   verifyRefreshToken,
   revokeRefreshToken,
+  revokeAllUserRefreshTokens,
 } from "../utils/jwt";
 import { authenticateJWT } from "../middlewares/authMiddleware";
 import { rateLimitLogin } from "../middlewares/rateLimitMiddleware";
@@ -14,8 +14,8 @@ import {
   isLoginBlocked,
   trackFailedLogin,
   resetFailedLoginAttempts,
-  revokeAllUserRefreshTokens,
 } from "../queries/authQueries";
+import { tenantServiceCircuitBreaker } from "../utils/circuitBreaker";
 const validate = require("../middlewares/validate");
 
 const router = Router();
@@ -29,6 +29,13 @@ const loginValidator = [
     .withMessage("Valid tenant ID is required if provided"),
   validate,
 ];
+
+const refreshTokenValidator = [
+  body("refreshToken").notEmpty().withMessage("Refresh token is required"),
+  validate,
+];
+
+const logoutValidator = [body("refreshToken").optional().isString(), validate];
 
 async function publishLoginAudit(
   req: Request,
@@ -50,7 +57,7 @@ async function publishLoginAudit(
     userAgent,
     timestamp: new Date(),
     metadata: {
-      method: "method",
+      method: "password",
       ...(tenantId ? { tenantId } : {}),
     },
   });
@@ -73,95 +80,123 @@ router.post(
         return;
       }
 
-      // Mock user before I connect the auth service to the tenant service
-      let user;
-      let roles = [];
-      let permissions = [];
+      try {
+        let authenticatedUser;
+        let roles = [];
+        let permissions = [];
 
-      if (!tenantId) {
-        user = {
-          id: "admin-user-123",
-          email: "admin@example.com",
-          password: await bcrypt.hash("password123", 10),
-          firstName: "Admin",
-          lastName: "User",
-          isAdmin: true,
-        };
+        if (!tenantId) {
+          try {
+            const result = await tenantServiceCircuitBreaker.executeRequest(
+              "tenant.requests",
+              {
+                action: "verify-admin-user",
+                data: {
+                  email,
+                  password,
+                },
+              }
+            );
 
-        roles = ["ADMIN"];
-        permissions = ["manage_tenants", "view_tenants", "manage_admin_users"];
-      } else {
-        user = {
-          id: "tenant-user-123",
-          email: "user@example.com",
-          password: await bcrypt.hash("password123", 10),
-          firstName: "Tenant",
-          lastName: "User",
-          isAdmin: false,
-          tenantId,
-        };
+            if (!result.verified) {
+              await trackFailedLogin({
+                email,
+                ip: req.ip || "unknown",
+              });
 
-        roles = ["TENANT_USER"];
-        permissions = ["view_own_profile"];
-      }
+              await publishLoginAudit(req, false);
+              res.status(401).json({ error: "Invalid email or password" });
+              return;
+            }
 
-      if (
-        user &&
-        email === user.email &&
-        (await bcrypt.compare(password, user.password))
-      ) {
+            authenticatedUser = result.user;
+            roles = result.roles || [];
+            permissions = result.permissions || [];
+          } catch (error) {
+            console.error("Admin authentication error:", error);
+            res.status(500).json({ error: "Error during authentication" });
+            return;
+          }
+        } else {
+          try {
+            const result = await tenantServiceCircuitBreaker.executeRequest(
+              "tenant.requests",
+              {
+                action: "verify-tenant-user",
+                data: {
+                  email,
+                  password,
+                  tenantId,
+                },
+              }
+            );
+
+            if (!result.verified) {
+              await trackFailedLogin({
+                email,
+                ip: req.ip || "unknown",
+                tenantId,
+              });
+
+              await publishLoginAudit(req, false, undefined, tenantId);
+              res.status(401).json({ error: "Invalid email or password" });
+              return;
+            }
+
+            authenticatedUser = result.user;
+            roles = result.roles || [];
+            permissions = result.permissions || [];
+          } catch (error) {
+            console.error("Tenant user authentication error:", error);
+            res.status(500).json({ error: "Error during authentication" });
+            return;
+          }
+        }
+
         await resetFailedLoginAttempts(email, req.ip || "unknown");
 
         const accessToken = generateAccessToken({
-          userId: user.id,
-          email: user.email,
-          isAdmin: user.isAdmin,
-          tenantId: user.tenantId,
+          userId: authenticatedUser.id,
+          email: authenticatedUser.email,
+          isAdmin: !tenantId,
+          tenantId: tenantId || undefined,
           roles,
           permissions,
         });
 
         const refreshToken = await generateRefreshToken(
-          user.id,
-          user.isAdmin,
-          user.tenantId
+          authenticatedUser.id,
+          !tenantId,
+          tenantId || undefined
         );
 
-        await publishLoginAudit(req, true, user.id, user.tenantId);
+        await publishLoginAudit(req, true, authenticatedUser.id, tenantId);
 
         res.status(200).json({
           accessToken,
           refreshToken,
           user: {
-            id: user.id,
-            email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            isAdmin: user.isAdmin,
-            tenantId: user.tenantId,
+            id: authenticatedUser.id,
+            email: authenticatedUser.email,
+            firstName: authenticatedUser.firstName,
+            lastName: authenticatedUser.lastName,
+            isAdmin: !tenantId,
+            tenantId: tenantId || undefined,
           },
         });
-      } else {
-        await trackFailedLogin({
-          email,
-          ip: req.ip || "unknown",
-          tenantId,
-        });
+      } catch (error) {
+        console.error("Login error:", error);
 
+        try {
+          await publishLoginAudit(req, false);
+        } catch (auditError) {
+          console.error("Failed to publish login audit:", auditError);
+        }
 
-        await publishLoginAudit(req, false, undefined, tenantId);
-
-        res.status(401).json({ error: "Invalid email or password" });
+        res.status(500).json({ error: "Internal server error" });
       }
     } catch (error) {
       console.error("Login error:", error);
-
-      try {
-        await publishLoginAudit(req, false);
-      } catch (auditError) {
-        console.error("Failed to publish login audit:", auditError);
-      }
-
       res.status(500).json({ error: "Internal server error" });
     }
   }
@@ -169,14 +204,10 @@ router.post(
 
 router.post(
   "/refresh-token",
+  refreshTokenValidator,
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { refreshToken } = req.body;
-
-      if (!refreshToken) {
-        res.status(400).json({ error: "Refresh token is required" });
-        return;
-      }
 
       const tokenData = await verifyRefreshToken(refreshToken);
 
@@ -187,55 +218,83 @@ router.post(
 
       await revokeRefreshToken(tokenData.id);
 
-      // Mock user data
-      let userInfo;
-      let roles = [];
-      let permissions = [];
+      try {
+        let userData;
+        let roles = [];
+        let permissions = [];
 
-      if (tokenData.adminUser) {
-        userInfo = {
-          id: tokenData.userId,
-          email: "admin@example.com",
-          firstName: "Admin",
-          lastName: "User",
-          isAdmin: true,
-        };
+        if (tokenData.adminUser) {
+          const result = await tenantServiceCircuitBreaker.executeRequest(
+            "tenant.requests",
+            {
+              action: "get-admin-user",
+              data: {
+                userId: tokenData.userId,
+              },
+            }
+          );
 
-        roles = ["ADMIN"];
-        permissions = ["manage_tenants", "view_tenants", "manage_admin_users"];
-      } else {
-        userInfo = {
-          id: tokenData.userId,
-          email: "user@example.com",
-          firstName: "Tenant",
-          lastName: "User",
-          isAdmin: false,
+          if (!result.user) {
+            res.status(404).json({ error: "User not found or inactive" });
+            return;
+          }
+
+          userData = result.user;
+          roles = result.roles || [];
+          permissions = result.permissions || [];
+        } else {
+          const result = await tenantServiceCircuitBreaker.executeRequest(
+            "tenant.requests",
+            {
+              action: "get-tenant-user",
+              data: {
+                userId: tokenData.userId,
+                tenantId: tokenData.tenantId,
+              },
+            }
+          );
+
+          if (!result.user) {
+            res.status(404).json({ error: "User not found or inactive" });
+            return;
+          }
+
+          userData = result.user;
+          roles = result.roles || [];
+          permissions = result.permissions || [];
+        }
+
+        const accessToken = generateAccessToken({
+          userId: tokenData.userId,
+          email: userData.email,
+          isAdmin: tokenData.adminUser,
           tenantId: tokenData.tenantId,
-        };
+          roles,
+          permissions,
+        });
 
-        roles = ["TENANT_USER"];
-        permissions = ["view_own_profile"];
+        const newRefreshToken = await generateRefreshToken(
+          tokenData.userId,
+          tokenData.adminUser,
+          tokenData.tenantId
+        );
+
+        res.status(200).json({
+          accessToken,
+          refreshToken: newRefreshToken,
+          user: {
+            id: userData.id,
+            email: userData.email,
+            firstName: userData.firstName,
+            lastName: userData.lastName,
+            isAdmin: tokenData.adminUser,
+            tenantId: tokenData.tenantId,
+          },
+        });
+      } catch (error) {
+        console.error("Error refreshing token:", error);
+        res.status(500).json({ error: "Failed to refresh token" });
       }
-
-      const accessToken = generateAccessToken({
-        userId: userInfo.id,
-        email: userInfo.email,
-        isAdmin: userInfo.isAdmin,
-        tenantId: tokenData.tenantId,
-        roles,
-        permissions,
-      });
-
-      const newRefreshToken = await generateRefreshToken(
-        userInfo.id,
-        userInfo.isAdmin,
-        tokenData.tenantId
-      );
-
-      res.status(200).json({
-        accessToken,
-        refreshToken: newRefreshToken,
-      });
     } catch (error) {
       console.error("Token refresh error:", error);
       res.status(500).json({ error: "Internal server error" });
@@ -246,21 +305,84 @@ router.post(
 router.post(
   "/logout",
   authenticateJWT,
+  logoutValidator,
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { refreshToken } = req.body;
+      const userId = req.user?.userId;
+      const isAdmin = req.user?.isAdmin || false;
 
       if (refreshToken) {
         const tokenData = await verifyRefreshToken(refreshToken);
-
         if (tokenData) {
           await revokeRefreshToken(tokenData.id);
         }
       }
+      else if (userId) {
+        await revokeAllUserRefreshTokens(userId, isAdmin);
+      }
+
+      const ip = req.ip || req.socket.remoteAddress || "unknown";
+      const userAgent = req.headers["user-agent"] || "unknown";
+
+      await publishLoginEvent({
+        userId,
+        email: req.user?.email || "unknown",
+        tenantId: req.user?.tenantId,
+        action: "logout",
+        status: "success",
+        ip,
+        userAgent,
+        timestamp: new Date(),
+      });
 
       res.status(200).json({ message: "Logged out successfully" });
     } catch (error) {
       console.error("Logout error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+router.get(
+  "/verify-token",
+  authenticateJWT,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      if (req.user?.tenantId && !req.user.isAdmin) {
+        try {
+          const result = await tenantServiceCircuitBreaker.executeRequest(
+            "tenant.requests",
+            {
+              action: "get-user-permissions",
+              data: {
+                userId: req.user.userId,
+                tenantId: req.user.tenantId,
+              },
+            }
+          );
+
+          if (result.permissions) {
+            req.user.permissions = result.permissions;
+          }
+        } catch (error) {
+          console.error("Error getting updated permissions:", error);
+        }
+      }
+
+      res.status(200).json({
+        valid: true,
+        user: {
+          userId: req.user?.userId,
+          email: req.user?.email,
+          isAdmin: req.user?.isAdmin,
+          tenantId: req.user?.tenantId,
+          roles: req.user?.roles,
+          permissions: req.user?.permissions,
+        },
+      });
+    } catch (error) {
+      console.error("Token verification error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   }
