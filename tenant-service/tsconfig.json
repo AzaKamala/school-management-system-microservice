@@ -6,11 +6,13 @@
         "strict": true,
         "esModuleInterop": true,
         "skipLibCheck": true,
-        "forceConsistentCasingInFileNames": true
+        "forceConsistentCasingInFileNames": true,
+        "rootDir": "."
     },
     "include": [
-        "src/**/*.ts"
-, "src/queries"    ],
+        "src/**/*.ts",
+        "scripts/**/*.ts"
+    ],
     "exclude": [
         "node_modules"
     ]
