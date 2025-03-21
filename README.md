@@ -185,4 +185,4 @@ A complete Postman collection is included in the repository for testing all endp
 - **Circuit Breaker Pattern**: Resilience against service failures
 
 ### Postman Collection
-A Postman collection is included in the repository for testing the API endpoints. Import `School_Management_System_API.postman_collection.json` into Postman to get started.
+A Postman collection is included in the repository for testing the API endpoints. Import `postman-collection.json` into Postman to get started.
